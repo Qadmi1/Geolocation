@@ -62,6 +62,6 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
     @Override
     public boolean onMyLocationButtonClick() {
         mMap.setTrafficEnabled(true);
-        return true;
+        return false;
     }
 }
