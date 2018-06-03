@@ -6,7 +6,7 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import com.google.android.gms.location.LocationListener;
 import android.location.Location;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -19,7 +19,6 @@ import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.Toast;
-
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
@@ -29,7 +28,6 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
 import com.google.android.gms.location.LocationSettingsResult;
-import com.google.android.gms.location.LocationSettingsStates;
 import com.google.android.gms.location.LocationSettingsStatusCodes;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
@@ -39,7 +37,7 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 
 
-public class GetLocation extends AppCompatActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+public class GetLocation extends AppCompatActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
 
     GoogleMap mMap;
     // Constant that act as an identifier
@@ -62,75 +60,7 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
 
         // Listener that runs when the map is ready
         mapFragment.getMapAsync(this);
-        // As the name suggest this method will build the client
-        buildClient();
 
-        // Create a(custom) location request
-        LocationRequest request = new LocationRequest();
-        // Make the request with high accuracy priority
-        request.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-        // The interval is the time between every update which is 1 second here (1000 milli second)
-        request.setInterval(1000);
-        // The request asks for 10 times
-        request.setNumUpdates(10);
-
-        // Check if the request fulfills our location settings request and if it does build that
-        // location settings request which means it's case SUCCESS if it does not fulfill then
-        // it's case RESOLUTION_REQUIRED
-        LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder().addLocationRequest(request);
-
-        // Ask for the list of results for the request for apiClient from the Android system
-        PendingResult<LocationSettingsResult> results = LocationServices.SettingsApi.checkLocationSettings(apiClient, builder.build());
-
-        // This Callback is called when result for the request is ready
-        results.setResultCallback(new ResultCallback<LocationSettingsResult>() {
-            @Override
-            public void onResult(@NonNull LocationSettingsResult locationSettingsResult) {
-                // checks if location is enabled or not
-                final Status status = locationSettingsResult.getStatus();
-                // checks for the degree of the location (PRIORITY_HIGH_ACCURACY or something else)
-//                final LocationSettingsStates LS_States = locationSettingsResult.getLocationSettingsStates();
-
-                switch (status.getStatusCode()) {
-                    // If case is RESOLUTION_REQUIRED i.e. the request didn't fulfill the location
-                    // settings request
-                    case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
-
-                        try {
-                            // This is very similar to an intent with call startActivityForResult()
-                            // with a(Constant) identifier
-                            status.startResolutionForResult(GetLocation.this, REQUEST_CHECK_SETTINGS);
-                        } catch (IntentSender.SendIntentException e) {
-                            e.printStackTrace();
-                        }
-                        break;
-                    // If case is SUCCESS i.e. the request fulfilled the location settings request
-                    case LocationSettingsStatusCodes.SUCCESS:
-                        //Check if the permission was not granted
-                        if (ContextCompat.checkSelfPermission(GetLocation.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                            //Ask for the permissions
-                            ActivityCompat.requestPermissions(GetLocation.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                                    LOCATION_REQUEST_CONSTANT);
-                            ActivityCompat.requestPermissions(GetLocation.this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION},
-                                    LOCATION_REQUEST_CONSTANT);
-                            //Assign the current location to the client using the FusedLocationApi
-                            currentLoc = LocationServices.FusedLocationApi.getLastLocation(apiClient);
-
-                        }
-                        // If permission was granted
-                        else {
-                            //Assign the current location to the client using the FusedLocationApi
-                            currentLoc = LocationServices.FusedLocationApi.getLastLocation(apiClient);
-
-                        }
-                        break;
-                    // Otherwise if the case is SETTINGS_CHANGE_UNAVAILABLE
-                    case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
-                        Toast.makeText(GetLocation.this, "Settings unavailable", Toast.LENGTH_SHORT).show();
-                        break;
-                }
-            }
-        });
 
         ImageButton im = findViewById(R.id.im);
         im.setOnClickListener(new View.OnClickListener() {
@@ -141,6 +71,30 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
         });
     }
 
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        /**
+         * It is the correct thing to build the client on onResume so that we make sure that every
+         * time we come back this page(After taking a picture) we would have our client connected
+         * correctly AKA we would have the picture in the new location, since the the creating of
+         * location request is in the onConnected method which is called after building the client
+         */
+        // As the name suggest this method will build the client
+        buildClient();
+    }
+
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (apiClient.isConnected()) {
+            apiClient.disconnect();
+        }
+    }
+
+
     //This method is called when the button is pressed
     private void takePicture() {
         //Create an intent to the system to capture an image
@@ -149,6 +103,7 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
         //REQUEST_CAMERA
         startActivityForResult(intent, REQUEST_CAMERA);
     }
+
 
     //This method is called when this activity is opened again after some call to other place
     @Override
@@ -163,9 +118,11 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
             // when the request didn't fulfill the location settings request)
             case REQUEST_CHECK_SETTINGS:
                 switch (resultCode) {
+                    //If the system was able to handle the resolution
                     case Activity.RESULT_OK:
-                        Log.i(TAG, "Location enabled");
+//                        Log.i(TAG, "Location enabled");
                         break;
+                    // Id the system was not able to handle the resolution
                     case Activity.RESULT_CANCELED:
                         Toast.makeText(this, "Location needs to be enabled", Toast.LENGTH_SHORT).show();
                         break;
@@ -178,6 +135,8 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
                     case Activity.RESULT_OK:
                         // First we need to make sure the current location isn't null
                         if (currentLoc != null) {
+                            Toast.makeText(GetLocation.this, "Camera worked", Toast.LENGTH_LONG).show();
+
                             // Create a thumbnail and take it from the data(result) passed from the
                             //intent
                             Bitmap thumbnail = (Bitmap) data.getExtras().get("data");
@@ -186,10 +145,13 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
                             //Add a marker to the map for our current location/position and add a
                             //thumbnail/picture to that particular marker
                             mMap.addMarker(new MarkerOptions().position(position).icon(BitmapDescriptorFactory.fromBitmap(thumbnail)));
+//                            Log.i(TAG, "camera did work");
                         }
                 }
+                break;
         }
     }
+
 
     // This method is called when the map is ready
     @Override
@@ -242,34 +204,113 @@ public class GetLocation extends AppCompatActivity implements OnMapReadyCallback
         apiClient.connect();
     }
 
+
     // This method is called when the client is connected
     @Override
     public void onConnected(@Nullable Bundle bundle) {
+        /**
+         * It is better to add this block of code here in onConnected to make it more solid and
+         * organised and also this block of code only works after the client is connected, so it
+         * make more sense to add this block of code here
+         */
+        // Create a(custom) location request
+        final LocationRequest request = new LocationRequest();
+        // Make the request with high accuracy priority
+        request.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        // The interval is the time between every update which is 1 second here (1000 milli second)
+        request.setInterval(1000);
+        // The request asks for 10 times
+        request.setNumUpdates(10);
 
-        Log.i(TAG, "Connected");
+        // Check if the request fulfills our location settings request and if it does build that
+        // location settings request which means it's case SUCCESS if it does not fulfill then
+        // it's case RESOLUTION_REQUIRED
+        LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder().addLocationRequest(request);
+
+        // Ask for the list of results for the request for apiClient from the Android system
+        final PendingResult<LocationSettingsResult> results = LocationServices.SettingsApi.checkLocationSettings(apiClient, builder.build());
+
+        // This Callback is called when result for the request is ready
+        results.setResultCallback(new ResultCallback<LocationSettingsResult>() {
+            @Override
+            public void onResult(@NonNull LocationSettingsResult locationSettingsResult) {
+                // checks if location is enabled or not
+                final Status status = locationSettingsResult.getStatus();
+                // checks for the degree of the location (PRIORITY_HIGH_ACCURACY or something else)
+//                final LocationSettingsStates LS_States = locationSettingsResult.getLocationSettingsStates();
+
+                switch (status.getStatusCode()) {
+                    // If case is RESOLUTION_REQUIRED i.e. the request didn't fulfill the location
+                    // settings request
+                    case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
+
+                        try {
+                            // Send a call to the system to handle the resolution and it is very
+                            // similar to an intent with call startActivityForResult()
+                            // with a(Constant) identifier
+                            status.startResolutionForResult(GetLocation.this, REQUEST_CHECK_SETTINGS);
+                        } catch (IntentSender.SendIntentException e) {
+                            e.printStackTrace();
+                        }
+                        break;
+                    // If case is SUCCESS i.e. the request fulfilled the location settings request
+                    case LocationSettingsStatusCodes.SUCCESS:
+                        //Check if the permission was not granted
+                        if (ContextCompat.checkSelfPermission(GetLocation.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                            //Ask for the permissions
+                            ActivityCompat.requestPermissions(GetLocation.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                                    LOCATION_REQUEST_CONSTANT);
+                            ActivityCompat.requestPermissions(GetLocation.this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION},
+                                    LOCATION_REQUEST_CONSTANT);
+                            //Request/Update the location
+                            LocationServices.FusedLocationApi.requestLocationUpdates(apiClient, request, GetLocation.this);
+
+                            //Assign the current location to the client using the FusedLocationApi
+                            currentLoc = LocationServices.FusedLocationApi.getLastLocation(apiClient);
+
+                        }
+                        // If permission was granted
+                        else {
+                            //Request/Update the location
+                            LocationServices.FusedLocationApi.requestLocationUpdates(apiClient, request, GetLocation.this);
+
+                            //Assign the current location to the client using the FusedLocationApi
+                            currentLoc = LocationServices.FusedLocationApi.getLastLocation(apiClient);
+                            Toast.makeText(GetLocation.this, "Camera worked", Toast.LENGTH_LONG).show();
+
+                        }
+                        break;
+                    // Otherwise if the case is SETTINGS_CHANGE_UNAVAILABLE
+                    case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
+                        Toast.makeText(GetLocation.this, "Settings unavailable", Toast.LENGTH_SHORT).show();
+                        break;
+                }
+            }
+        });
+
+//        Log.i(TAG, "Connected");
     }
+
 
     // This method is called when the connected client has suspended
     @Override
     public void onConnectionSuspended(int i) {
 
-        Log.i(TAG, "Connection Suspended");
+//        Log.i(TAG, "Connection Suspended");
     }
 
     // This method is called when the client has failed to connect
     @Override
     public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
 
-        Log.i(TAG, "Connection Failed " + connectionResult.getErrorMessage());
+//        Log.i(TAG, "Connection Failed " + connectionResult.getErrorMessage());
     }
 
+
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        // Close the client connection when the App has been destroyed after checking if the connection
-        // exists
-        if (apiClient.isConnected()) {
-            apiClient.disconnect();
-        }
+    public void onLocationChanged(Location location) {
+
     }
+
+
 }
